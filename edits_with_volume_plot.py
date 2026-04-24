@@ -1,29 +1,43 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
-def prepare_wiki_df(df: pd.DataFrame, drop_no_text = False, sample="normal"):
+def prepare_wiki_df(df: pd.DataFrame, drop_no_text = False):
 
 
-    df = df[df["minor"] == False]
     if drop_no_text:
         df = df[df.intro_text.isna().astype(int) == 0]
-
     df['is_revert'] = (df['sha1'] == df['sha1'].shift(2)).astype(int)
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    df.set_index("timestamp", inplace=True)
+    
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+    df["timestamp"] = df["timestamp"].dt.tz_convert("America/New_York")
+    df["trading_day"] = (df["timestamp"] - pd.Timedelta(hours=16)).dt.date
+
+
     return df
 
 def get_aggregated_wiki_stats(df: pd.DataFrame, sample="W"):
-    agg = df.resample(sample).agg({
+
+    before = df[~df['after_close']].resample(sample).agg({
         'is_revert': 'sum',
         'user': 'nunique',
         'sha1': 'count'
     }).rename(columns={
-        'is_revert': 'reverts',
-        'user': 'unique_editors',
-        'sha1': 'total_edits'
+        'is_revert': 'reverts_before',
+        'user': 'unique_editors_before',
+        'sha1': 'total_edits_before'
     })
-    return agg
+    # AFTER close
+    after = df[df['after_close']].resample(sample).agg({
+        'is_revert': 'sum',
+        'user': 'nunique',
+        'sha1': 'count'
+    }).rename(columns={
+        'is_revert': 'reverts_after',
+        'user': 'unique_editors_after',
+        'sha1': 'total_edits_after'
+    })
+    result = before.join(after, how='outer').fillna(0)
+    return result
 
 
 def prepare_stock_df(df: pd.DataFrame):
